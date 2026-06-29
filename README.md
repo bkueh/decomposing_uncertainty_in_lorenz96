@@ -15,7 +15,7 @@ Using the two-scale Lorenz '96 (L96) system as a controlled testbed, we disentan
 
 ## Repository structure
 
-- `src/models/`: two-scale Lorenz '96 and coarse-grained model implementations
+- `src/models/`: two-scale Lorenz '96 and reduced model implementations
 - `src/parameterization/`: deterministic, autoregressive, Bayesian, and normalizing-flow parameterizations
 - `src/ensemble/`: ensemble simulation routines
 - `src/run/`: command-line entry points for data generation, training, and simulation
@@ -28,7 +28,7 @@ Using the two-scale Lorenz '96 (L96) system as a controlled testbed, we disentan
 
 - A forcing-conditioned flow variant (`configs/fit_params_forcing_flow.yaml` and `configs/forcing_flow/`) and time-varying linear and oscillating forcing schedules.
 - Initial-state generation through multiple independent spin-ups. The paper instead selects initial states at regular intervals from a single long trajectory.
-- A Wilks-style[^1] perturbation scheme that adds anisotropic Gaussian noise using a covariance estimated from local analogues of each initial state. This method is computationally expensive and did not produce materially different results from the IID Gaussian perturbations used in the paper.
+- A Wilks-style[^1] perturbation scheme that adds anisotropic Gaussian noise using a covariance estimated from local analogues of each initial state. This method is computationally expensive and did not produce materially different results from the isotropic Gaussian perturbations used in the paper.
 
 ## Installation
 
@@ -44,7 +44,7 @@ All commands below assume they are run from the repository root with this enviro
 
 ## Reproducing the experiments
 
-The experiments follow a common pipeline: generate L96 data, fit every parameterization, generate the initial conditions, and then run the same set of ensemble configurations for each reduced model. Run all commands from the repository root. The configuration files specify the corresponding input and output directories under `results/`.
+The experiments follow a common pipeline: generate L96 data, fit every parameterization, generate the initial conditions, and then run the same set of ensemble configurations for each reduced model. Unless stated otherwise, run all commands from the repository root. The configuration files specify the corresponding input and output directories under `results/`.
 
 ### 1. Generate training data
 
@@ -82,16 +82,16 @@ python -m submit_local_run --config configs/perturb_initial_states.yaml
 **Optional**: Run the first part of [`compute_sigma_clim.ipynb`](notebooks/evaluation/compute_sigma_clim.ipynb) to compute $\sigma_{\mathrm{clim}}$ for the long training trajectory in order to compute the perturbation magnitude. 
 The currently specficied value of 0.25 is only valied for the specific L96 configuration. 
 
-### 4. Run the coarse-grained model ensembles
+### 4. Run the reduced model ensembles
 
 Every parameterization is evaluated using the same four experiment types:
 
 | Experiment | Initial conditions | Ensemble structure | Purpose |
 | --- | --- | --- | --- |
-| `long` | Unperturbed | 10 single-member trajectories of 10,000 model time units (MTU) | Estimates the stationary probability density, climatological standard deviation $\sigma_{\mathrm{clim}}$, and long-term temporal correlations. |
-| `perfect` | Unperturbed | One 10-MTU trajectory from each of 300 initial states | Quantifies variability across trajectories when no initial-condition perturbations are added. Here, *perfect* refers to exact initial conditions, not to a perfect coarse-grained model. |
-| `full` | Perturbed | $(N_{\mathrm{init}} \times N_{\mathrm{ens}} \times N_{\mathrm{model}})$ trajectories over 10 MTU | Crosses every initial-condition perturbation with every stochastic-parameterization realization. This separated structure supports uncertainty decomposition and forecast-skill evaluation. |
-| `mix` | Perturbed | $(N_{\mathrm{init}} \times N_{\mathrm{ens}})$ trajectories over 10 MTU, with each member jointly sampling an initial-condition perturbation and a stochastic-parameterization realization | Represents the combined uncertainties in the form of a conventional operational ensemble. Comparing it with `full` verifies that the forecast-skill results are not an artifact of the separated ensemble construction. |
+| `long` | Unperturbed | 10 single-member trajectories of 10,000 model time units (MTU) | Estimates long-term PDF, climatological standard deviation $\sigma_{\mathrm{clim}}$, and long-term temporal correlations. |
+| `perfect` | Unperturbed | One 10-MTU trajectory from each of 300 initial states | Estimates variability of invariant measure across different starting points on the attractor, i.e., different perfect initial states. Here, *perfect* refers to exact initial conditions, not to a perfect reduced model. |
+| `full` | Perturbed | $(N_{\mathrm{init}} \times N_{\mathrm{ens}} \times N_{\mathrm{model}})$ trajectories over 10 MTU | Crosses every initial-condition perturbation with every stochastic-parameterization realization. This separated structure supports uncertainty decomposition. |
+| `mix` | Perturbed | $(N_{\mathrm{init}} \times N_{\mathrm{ens}})$ trajectories over 10 MTU, with each member jointly sampling an initial-condition perturbation and a stochastic-parameterization realization | Represents the combined uncertainties in the form of a conventional operational ensemble. Comparing it with `full` verifies that results are not an artifact of the separated ensemble construction. |
 
 The configuration files follow the naming convention
 
@@ -106,6 +106,7 @@ where `<experiment>` is `long`, `perfect`, `full`, or `mix`. The available param
 - `bayes`
 - `flow`
 - `ar_base_flow`
+- `forcing_flow`
 - `history_flow`
 - `tail_flow`
 
@@ -118,7 +119,7 @@ python -m submit_local_run --config configs/flow/ensemble_gcm_flow_full.yaml
 python -m submit_local_run --config configs/flow/ensemble_gcm_flow_mix.yaml
 ```
 
-Apply this four-experiment pattern to every other parameterization directory. For the deterministic baseline, `full` reduces to `mix` because there are no stochastic parameterization realizations.
+Apply this four-experiment pattern to every other parameterization directory. For the deterministic baseline, `full` reduces to `mix` because there are no stochastic parameterization realizations. Note that for the history flow, the history length $\tau$ is specified as `delta_t` in the configuration files. 
 
 ### 5. Run the Lorenz '96 reference ensembles
 
@@ -126,9 +127,9 @@ The fully resolved Lorenz '96 system uses three corresponding experiments:
 
 | Experiment | Configuration | Purpose |
 | --- | --- | --- |
-| Perfect-initial-condition reference (`short`) | `configs/L96/ensemble_l96_short.yaml` | Generates one 10-MTU truth trajectory from each unperturbed initial state. These trajectories provide the reference for forecast-error and internal-variability metrics. |
-| Initial-condition sensitivity (`sensitivity`) | `configs/L96/ensemble_l96_sensitivity.yaml` | Runs 10-MTU perturbed ensembles to isolate spread caused by initial-condition uncertainty. |
-| Long-run reference (`long`) | `configs/L96/ensemble_l96_long.yaml` | Provides the stationary distribution, $\sigma_{\mathrm{clim}}$, and long-term temporal correlations of the fully resolved system. |
+| Perfect-initial-condition reference (`short`) | `configs/L96/ensemble_l96_short.yaml` | Generates one 10-MTU truth trajectory from each unperturbed initial state. These trajectories provide the reference for forecast-error and internal variability metrics. |
+| Initial-condition sensitivity (`sensitivity`) | `configs/L96/ensemble_l96_sensitivity.yaml` | Runs 10-MTU perturbed ensembles to test L96 sensitivity to initial-condition perturbations. |
+| Long-run reference (`long`) | `configs/L96/ensemble_l96_long.yaml` | Provides the long-term PDF, $\sigma_{\mathrm{clim}}$, and long-term temporal correlations of the fully resolved system. |
 
 Run them with:
 
@@ -147,9 +148,8 @@ The SLURM launcher is `python -m submit_slurm_run --config <config>`; its resour
 The batch evaluation entry points are in `notebooks/evaluation/scripts/`:
 
 - `eval_metrics_mix_driver.py`: spread, error, and skill metrics for mixed ensembles
-- `eval_metrics_full_perfect_driver.py`: metrics for full model/initial-condition ensembles
+- `eval_metrics_full_perfect_driver.py`: metrics for perfect and full ensembles
 - `eval_correlation_driver.py`: temporal correlation diagnostics
-- `compute_rank_histogram_driver.py`: rank histograms
 
 The corresponding `run_*.sh` and `submit_all_models_*.sh` can be used for SLURM submission. These need to be run from `notebooks/evaluation/scripts`. Update their model and output directories for your generated results before running them. The scripts write processed metrics to `notebooks/evaluation/output/`; the plotting notebooks load these files in the next step.
 
@@ -170,7 +170,7 @@ Use the following notebooks to reproduce the results and figures:
 - [`ensemble_evaluation_long.ipynb`](notebooks/evaluation/ensemble_evaluation_long.ipynb): plot long-term PDFs and density-based statistics from the `long` experiments
 - [`ensemble_evaluation_full_mix.ipynb`](notebooks/evaluation/ensemble_evaluation_full_mix.ipynb): plot internal variability, the uncertainty decomposition, full-versus-mix comparisons, forecast skill, and spread-error relationship
 - [`ensemble_evaluation_correlation.ipynb`](notebooks/evaluation/ensemble_evaluation_correlation.ipynb): plot temporal autocorrelation and cross-correlation diagnostics
-- [`l96_evaluation_sensitivity.ipynb`](notebooks/evaluation/l96_evaluation_sensitivity.ipynb): compute and plot the Lorenz '96 initial-condition sensitivity results
+- [`l96_evaluation_sensitivity.ipynb`](notebooks/evaluation/l96_evaluation_sensitivity.ipynb): compute and plot the Lorenz '96 sensitivity results
 
 The notebooks save generated figures under `results/figures/`. 
 
